@@ -1,0 +1,1271 @@
+-- Help Desk Administrator
+-- Issues:
+-- 008: Add spellcheck button to Notes screen
+-- 010: Create a File --> Backup option
+-- 011: Add serial number
+-- 012: Improve search options
+
+-------------------------------------------------------------------------------
+
+include win32lib.ew
+include odbc.ew as odbc
+include tbflash.ew
+include sort.e
+
+-------------------------------------------------------------------------------
+
+global constant
+  hdWin = create(Window,"Help Desk Administrator",0,0,0,550,400,0),
+  hdFileMenu = create(Menu,"&File",hdWin,0,0,0,0,0),
+  hdFileBackup = create(Menu,"&Backup",hdFileMenu,0,0,0,0,0),
+  hdFileExit = create(MenuItem,"&Exit",hdFileMenu,0,0,0,0,0),
+  hdSearchMenu = create(Menu,"&Search",hdWin,0,0,0,0,0),
+  hdSearchMy = create(MenuItem,"&My issues",hdSearchMenu,0,0,0,0,0),
+  hdSearchNew = create(MenuItem,"&New issues",hdSearchMenu,0,0,0,0,0),
+  hdSearchAllOpen = create(MenuItem,"All &Open issues",hdSearchMenu,0,0,0,0,0),
+  hdSearchMyOpen = create(MenuItem,"M&y Open issues",hdSearchMenu,0,0,0,0,0),
+  hdSearchAll = create(MenuItem,"&All issues",hdSearchMenu,0,0,0,0,0),
+  hdSearchSep1 = create(MenuItem,"-",hdSearchMenu,0,0,0,0,0),
+  hdSearchCustom = create(MenuItem,"&Custom search",hdSearchMenu,0,0,0,0,0),
+  hdList = create(ListView,  {{"Issue #",60,'<'},{"Opened on",80,'<'},{"Deadline",80,'<'},
+     {"Assigned to",90,'<'},{"Status",64,'<'},{"MIS description",512,'<'}},hdWin,10,10,524,310,LVS_REPORT),
+  hdNewButton = create(PushButton,"&New",hdWin,100,325,70,20,0),
+  hdViewButton = create(PushButton,"&View",hdWin,230,325,70,20,0)
+
+global constant
+  hdRecWin = create(Window,"Help Desk Record",hdWin,0,0,400,575,0),
+  hdRecRefnumLabel = create(LText,"Reference #",hdRecWin,10,15,70,20,0),
+  hdRecRefnumEdit = create(EditText,"",hdRecWin,90,10,70,20,0),
+  hdRecStatusLabel = create(CText,"Status",hdRecWin,170,10,60,20,0),
+  hdRecStatusEdit = create(ComboBox,"",hdRecWin,240,10,120,80,0),
+  hdRecIssueWithLabel = create(LText,"Issue with:",hdRecWin,10,45,60,20,0),
+  hdRecIssueWithList = create(DropDownList,"",hdRecWin,90,40,170,80,0),
+  hdRecIssueTypeLabel = create(LText,"Issue type:",hdRecWin,10,75,60,20,0),
+  hdRecIssueTypeList = create(DropDownList,"",hdRecWin,90,70,170,80,0),
+  hdRecIssuePriLabel = create(LText,"Priority",hdRecWin,10,105,60,20,0),
+  hdRecIssuePriList = create(DropDownList,"",hdRecWin,90,100,170,80,0),
+  hdRecEntryDateLabel = create(LText,"Entry date",hdRecWin,10,135,70,20,0),
+  hdRecEntryDateEdit = create(EditText,"",hdRecWin,90,130,110,20,0),
+  hdRecUsernameLabel = create(CText,"Username",hdRecWin,300,50,80,15,0),
+  hdRecUsernameEdit = create(EditText,"",hdRecWin,300,70,80,20,0),
+  hdRecAssignedLabel = create(CText,"Assigned to",hdRecWin,300,95,80,15,0),
+  hdRecAssignedEdit = create(ComboBox,"",hdRecWin,300,115,80,80,0),
+  hdRecShortDescripLabel = create(LText,"MIS descrip",hdRecWin,10,165,70,20,0),
+  hdRecShortDescripEdit = create(EditText,"",hdRecWin,90,160,170,20,0),
+  hdRecDeadlineLabel = create(CText,"Deadline",hdRecWin,300,140,80,15,0),
+  hdRecDeadlineEdit = create(EditText,"",hdRecWin,300,160,80,20,0),
+  hdRecSerialLabel = create(LText,"Serial #",hdRecWin,10,195,70,20,0),
+  hdRecSerialEdit = create(EditText,"",hdRecWin,90,190,170,20,0),
+  hdRecDescription = create(MleText,"",hdRecWin,10,225,374,60,0),
+  hdRecNotesList = create(ListView,{{"Seq",40,'>'},{"Time",80,'<'},{"User",60,'<'},{"Status",64,'<'},
+      {"Notes",1024,'<'}},hdRecWin,10,295,374,150,LVS_REPORT),
+  hdRecOKButton =  create(PushButton,"&OK",hdRecWin,25,460,70,20,0),
+  hdRecCancelButton = create(PushButton,"&Cancel",hdRecWin,100,460,70,20,0),
+  hdRecAddNoteButton = create(PushButton,"Add &Note",hdRecWin,175,460,70,20,0),
+  hdRecSendEmailButton = create(PushButton,"Send &Email",hdRecWin,250,460,70,20,0)
+
+global constant
+  hdRecNotesWin = create(Window,"Notes",hdRecWin,0,0,500,300,0),
+  hdRecNotesTimestamp = create(LText,"",hdRecNotesWin,10,10,110,20,0),
+  hdRecNotesUsername = create(LText,"",hdRecNotesWin,130,10,80,20,0),
+  hdRecNotesStatus = create(LText,"",hdRecNotesWin,220,10,80,20,0),
+  hdRecNotesRefnum = create(LText,"",hdRecNotesWin,310,10,80,20,0),
+  hdRecNotesSeqnum = create(LText,"",hdRecNotesWin,400,10,40,20,0),
+  hdRecNotesNote = create(MleText,"",hdRecNotesWin,10,40,475,150,0),
+  hdRecNotesOKButton = create(PushButton,"&OK",hdRecNotesWin,100,225,70,20,0),
+  hdRecNotesCancelButton = create(PushButton,"&Cancel",hdRecNotesWin,200,225,70,20,0),
+  hdRecNotesDeleteButton = create(PushButton,"&Delete",hdRecNotesWin,300,225,70,20,0)
+
+global constant
+  hdRecEmailWin = create(Window,"Send email",hdRecWin,0,0,500,400,0),
+  hdRecEmailFromLabel = create(LText,"From:",hdRecEmailWin,10,10,60,20,0),
+  hdRecEmailFromEdit = create(EditText,"",hdRecEmailWin,90,10,300,20,0),
+  hdRecEmailToLabel = create(LText,"To:",hdRecEmailWin,10,40,60,20,0),
+  hdRecEmailToEdit = create(EditText,"",hdRecEmailWin,90,40,300,20,0),
+  hdRecEmailCCLabel = create(LText,"CC:",hdRecEmailWin,10,70,60,20,0),
+  hdRecEmailCCEdit = create(EditText,"",hdRecEmailWin,90,70,300,20,0),
+  hdRecEmailSubjLabel = create(LText,"Subject:",hdRecEmailWin,10,100,60,20,0),
+  hdRecEmailSubjEdit = create(EditText,"",hdRecEmailWin,90,100,300,20,0),
+  hdRecEmailMsgEdit = create(MleText,"",hdRecEmailWin,10,130,475,180,0),
+  hdRecEmailSendButton = create(PushButton,"Sen&d",hdRecEmailWin,25,325,70,20,0),
+  hdRecEmailCancelButton = create(PushButton,"&Cancel",hdRecEmailWin,100,325,70,20,0)
+
+global constant
+  MODE_NEW = 1,
+  MODE_EDIT = 2,
+  MODE_SEARCH = 3,
+  NOTE_NEW = 11,
+  NOTE_EDIT = 12
+  
+constant
+	ISSUE_REFNUM = 1,
+	ISSUE_WITH = 2,
+	ISSUE_TYPE = 3,
+	ISSUE_PRIORITY = 4,
+	ISSUE_ENTRYDATE = 5,
+	ISSUE_ASSIGNEDTO = 6,
+	ISSUE_STATUS = 7,
+	ISSUE_UNAME = 8,
+	ISSUE_DESCRIPTION = 9,
+	ISSUE_MISDESC = 10,
+	ISSUE_DEADLINE = 11,
+	ISSUE_SERIAL = 12
+	
+constant
+--	NOTES_REFNUM = 13,
+	NOTES_SEQ = 14,
+	NOTES_TIME = 15,
+--	NOTES_USER = 16,
+--	NOTES_STATUS = 17,
+	NOTES_NOTE = 18
+
+global atom dbconn, mode, notemode
+global sequence custom_search
+global sequence masterlist
+
+masterlist = {}
+
+--------------------------------------------------------------------------------
+-- SUPPORT ROUTINES
+--------------------------------------------------------------------------------
+
+function trim(object s)
+
+  if not sequence(s) then
+    return s
+  end if
+
+  for ctr = 1 to length(s) do
+    if atom(s[ctr]) and s[ctr]>32 then
+      s = s[ctr..length(s)]
+      exit
+    end if
+  end for
+  for ctr = length(s) to 1 by -1 do
+    if atom(s[ctr]) and s[ctr]>32 then
+      s = s[1..ctr]
+      exit
+    end if
+  end for
+
+  return s
+
+end function
+
+--------------------------------------------------------------------------------
+-- hdList
+-------------------------------------------------------------------------------
+
+procedure update_hdList(object SQLquery)
+
+  object temp
+  atom SQLhandle
+  object SQLdata, SQLcursor
+
+  SQLhandle = prepareSQL(dbconn,SQLquery)
+  if SQLhandle < 0 then
+    odbcError(-SQLhandle)
+    freeStmt(-SQLhandle,SQL_RESET_PARAMS)
+    return
+  end if
+  SQLdata = executeSQL(SQLhandle)
+  if SQLdata < 0 then
+    odbcError(-SQLdata)
+    freeStmt(SQLhandle,SQL_RESET_PARAMS)
+    return
+  end if
+
+  SQLcursor = {}
+  SQLdata = odbc:getData(SQLhandle)
+  while sequence(SQLdata) and length(SQLdata) > 0 do
+    SQLcursor = SQLcursor & SQLdata
+    SQLdata = odbc:getData(SQLhandle)
+  end while
+  freeStmt(SQLhandle,SQL_RESET_PARAMS)
+
+  eraseItems(hdList)
+  for i = 1 to length(SQLcursor) do
+    if atom(SQLcursor[i][1]) then
+      SQLcursor[i][1] = sprintf("%6d",SQLcursor[i][1])
+    end if
+    if length(SQLcursor[i][2])>=3 then
+      SQLcursor[i][2] = sprintf("%02d/%02d/%04d",{SQLcursor[i][2][2],SQLcursor[i][2][3],SQLcursor[i][2][1]})
+    end if
+    if length(SQLcursor[i][3])>=3 then
+      SQLcursor[i][3] = sprintf("%02d/%02d/%04d",{SQLcursor[i][3][2],SQLcursor[i][3][3],SQLcursor[i][3][1]})
+    else
+      SQLcursor[i][3] = "None"
+    end if
+    temp = addLVItem({hdList,-1},-1,SQLcursor[i])
+  end for
+
+  setText(hdWin,"Help Desk Administrator - "&sprintf("%d items showing",length(SQLcursor)))
+
+end procedure
+
+-------------------------------------------------------------------------------
+
+procedure update_masterlist()
+
+  object SQLquery
+  atom SQLhandle
+  object SQLdata, SQLcursor
+  sequence ml2
+
+  SQLquery = "SELECT issue_refnum,first_entered_date,deadline,assigned_to,status,mis_short_descrip "&
+             "FROM issues "&
+             "WHERE status=\'NEW\' "&
+             "ORDER BY issue_refnum;"
+
+  SQLhandle = prepareSQL(dbconn,SQLquery)
+  if SQLhandle < 0 then
+    odbcError(-SQLhandle)
+    freeStmt(-SQLhandle,SQL_RESET_PARAMS)
+    return
+  end if
+  SQLdata = executeSQL(SQLhandle)
+  if SQLdata < 0 then
+    odbcError(-SQLdata)
+    freeStmt(SQLhandle,SQL_RESET_PARAMS)
+    return
+  end if
+
+  SQLcursor = {}
+  SQLdata = odbc:getData(SQLhandle)
+  while sequence(SQLdata) and length(SQLdata) > 0 do
+    SQLcursor = SQLcursor & SQLdata
+    SQLdata = odbc:getData(SQLhandle)
+  end while
+  freeStmt(SQLhandle,SQL_RESET_PARAMS)
+
+  ml2 = {}
+  for ctr = 1 to length(SQLcursor) do
+    ml2 = ml2 & SQLcursor[ctr][1]
+  end for
+
+  ml2 = sort(ml2)
+  masterlist = sort(masterlist)
+
+  if length(masterlist)>0 and compare(masterlist,ml2)!=0 then
+    flashWindow(hdWin,FLASHW_ALL+FLASHW_TIMER,500,0)
+  end if
+
+  masterlist = ml2
+
+end procedure
+
+-------------------------------------------------------------------------------
+
+procedure hdList_My()
+
+  sequence uname
+  object SQLquery
+
+  uname = getenv("username")
+
+  SQLquery = "SELECT issue_refnum,first_entered_date,deadline,assigned_to,status,mis_short_descrip "&
+             "FROM issues "&
+             "WHERE assigned_to=\'"&uname&"\' "&
+             "ORDER BY issue_refnum;"
+  update_hdList(SQLquery)
+  setCheck(hdSearchMy,w32True)
+  setCheck(hdSearchNew,w32False)
+  setCheck(hdSearchAll,w32False)
+  setCheck(hdSearchMyOpen,w32False)
+  setCheck(hdSearchAllOpen,w32False)
+  setCheck(hdSearchCustom,w32False)
+
+end procedure
+
+-------------------------------------------------------------------------------
+
+procedure hdList_New()
+
+  object SQLquery
+
+  SQLquery = "SELECT issue_refnum,first_entered_date,deadline,assigned_to,status,mis_short_descrip "&
+             "FROM issues "&
+             "WHERE status=\'NEW\' "&
+             "ORDER BY issue_refnum;"
+  update_hdList(SQLquery)
+  setCheck(hdSearchMy,w32False)
+  setCheck(hdSearchNew,w32True)
+  setCheck(hdSearchAll,w32False)
+  setCheck(hdSearchMyOpen,w32False)
+  setCheck(hdSearchAllOpen,w32False)
+  setCheck(hdSearchCustom,w32False)
+  flashWindow(hdWin,FLASHW_STOP,0,0)
+
+end procedure
+
+-------------------------------------------------------------------------------
+
+procedure hdList_MyOpen()
+
+  sequence uname
+  object SQLquery
+
+  uname = getenv("username")
+  SQLquery = "SELECT issue_refnum,first_entered_date,deadline,assigned_to,status,mis_short_descrip "&
+             "FROM issues "&
+             "WHERE status<>\'CLOSED\' AND status<>\'HOLD\' AND "&
+             "assigned_to=\'"&uname&"\' "&
+             "ORDER BY issue_refnum DESC;"
+  update_hdList(SQLquery)
+  setCheck(hdSearchMy,w32False)
+  setCheck(hdSearchNew,w32False)
+  setCheck(hdSearchAll,w32False)
+  setCheck(hdSearchMyOpen,w32True)
+  setCheck(hdSearchAllOpen,w32False)
+  setCheck(hdSearchCustom,w32False)
+
+end procedure
+
+-------------------------------------------------------------------------------
+
+procedure hdList_Open()
+
+  object SQLquery
+
+  SQLquery = "SELECT issue_refnum,first_entered_date,deadline,assigned_to,status,mis_short_descrip "&
+             "FROM issues "&
+             "WHERE status<>\'CLOSED\' "&
+             "ORDER BY issue_refnum;"
+  update_hdList(SQLquery)
+  setCheck(hdSearchMy,w32False)
+  setCheck(hdSearchNew,w32False)
+  setCheck(hdSearchAll,w32False)
+  setCheck(hdSearchMyOpen,w32False)
+  setCheck(hdSearchAllOpen,w32True)
+  setCheck(hdSearchCustom,w32False)
+
+end procedure
+
+-------------------------------------------------------------------------------
+
+procedure hdList_All()
+
+  object SQLquery
+
+  SQLquery = "SELECT issue_refnum,first_entered_date,deadline,assigned_to,status,mis_short_descrip "&
+             "FROM issues ORDER BY issue_refnum;"
+  update_hdList(SQLquery)
+  setCheck(hdSearchMy,w32False)
+  setCheck(hdSearchNew,w32False)
+  setCheck(hdSearchAll,w32True)
+  setCheck(hdSearchMyOpen,w32False)
+  setCheck(hdSearchAllOpen,w32False)
+  setCheck(hdSearchCustom,w32False)
+
+end procedure
+
+-------------------------------------------------------------------------------
+
+procedure hdList_Custom()
+
+  object SQLquery
+
+  SQLquery = custom_search
+  update_hdList(SQLquery)
+
+end procedure
+
+-------------------------------------------------------------------------------
+
+global procedure onOpen_hdWin(integer self, integer event, sequence params)
+
+  object temp
+
+  setLVStyle(hdList, {LVS_EX_FULLROWSELECT,
+                      LVS_EX_GRIDLINES,
+                      LVS_EX_HEADERDRAGDROP})
+  setLVStyle(hdRecNotesList, {LVS_EX_FULLROWSELECT,
+                      LVS_EX_GRIDLINES,
+                      LVS_EX_HEADERDRAGDROP})
+
+  addItem(hdRecIssueWithList,"[]")
+  addItem(hdRecIssueWithList,"My computer")
+  addItem(hdRecIssueWithList,"My screen")
+  addItem(hdRecIssueWithList,"Blue Cherry")
+  addItem(hdRecIssueWithList,"E-mail")
+  addItem(hdRecIssueWithList,"Printing")
+  addItem(hdRecIssueWithList,"MS Excel")
+  addItem(hdRecIssueWithList,"MS Word")
+  addItem(hdRecIssueWithList,"EDI")
+  addItem(hdRecIssueWithList,"Internet")
+  addItem(hdRecIssueWithList,"Network infrastructure")
+  addItem(hdRecIssueWithList,"My phone")
+  addItem(hdRecIssueWithList,"Faxes")
+  addItem(hdRecIssueWithList,"Access from home")
+  addItem(hdRecIssueWithList,"Usernames and passwords")
+  addItem(hdRecIssueWithList,"Something I need to buy")
+  addItem(hdRecIssueWithList,"Electricity")
+  addItem(hdRecIssueWithList,"Heating or A/C")
+  addItem(hdRecIssueWithList,"Plumbing")
+  addItem(hdRecIssueWithList,"Something else")
+
+  addItem(hdRecIssueTypeList,"[]")
+  addItem(hdRecIssueTypeList,"It gives me an error")
+  addItem(hdRecIssueTypeList,"I have a question")
+  addItem(hdRecIssueTypeList,"It's not responding")
+  addItem(hdRecIssueTypeList,"It looks strange")
+  addItem(hdRecIssueTypeList,"It's just slow")
+  addItem(hdRecIssueTypeList,"I need a new report")
+  addItem(hdRecIssueTypeList,"I need a new feature")
+  addItem(hdRecIssueTypeList,"It won't start")
+  addItem(hdRecIssueTypeList,"This is a project")
+  addItem(hdRecIssueTypeList,"There is a new user")
+  addItem(hdRecIssueTypeList,"A user has left the company")
+  addItem(hdRecIssueTypeList,"I need a new password")
+  addItem(hdRecIssueTypeList,"Something else")
+
+  addItem(hdRecIssuePriList,"[]")
+  addItem(hdRecIssuePriList,"Urgent")
+  addItem(hdRecIssuePriList,"Very high")
+  addItem(hdRecIssuePriList,"High")
+  addItem(hdRecIssuePriList,"Medium")
+  addItem(hdRecIssuePriList,"Low")
+
+  addItem(hdRecStatusEdit,"NEW")
+  addItem(hdRecStatusEdit,"UPDATED")
+  addItem(hdRecStatusEdit,"WIP")
+  addItem(hdRecStatusEdit,"HOLD")
+  addItem(hdRecStatusEdit,"CLOSED")
+  addItem(hdRecStatusEdit,"EVAL")
+
+  addItem(hdRecAssignedEdit,"CGS")
+  addItem(hdRecAssignedEdit,"JohnD")
+  addItem(hdRecAssignedEdit,"RicL")
+  addItem(hdRecAssignedEdit,"MikeS")
+  addItem(hdRecAssignedEdit,"CorinneA")
+  addItem(hdRecAssignedEdit,"SeanaM")
+  addItem(hdRecAssignedEdit,"RobM")
+
+  dbconn = openConnectionODBC("shelob","hduser","hduserpw")
+  if dbconn <= 0 then
+    temp = message_box("ODBC Connection Error","Could not connect to DB",MB_ICONWARNING)
+  end if
+
+  hdList_Open()
+  mode = MODE_EDIT
+  update_masterlist()
+  setTimer(hdWin,1,300000)
+
+end procedure
+setHandler(hdWin,w32HOpen,routine_id("onOpen_hdWin"))
+
+-------------------------------------------------------------------------------
+
+global procedure onResize_hdWin(integer self, integer event, sequence params)
+
+  sequence rect
+
+  flashWindow(hdWin,FLASHW_STOP,0,0)
+  rect = getRect(hdWin)
+  setRect(hdList,10,10,((rect[3]-rect[1])-26),((rect[4]-rect[2])-90),w32True)
+  setRect(hdNewButton,100,((rect[4]-rect[2])-75),70,20,w32True)
+  setRect(hdViewButton,230,((rect[4]-rect[2])-75),70,20,w32True)
+
+end procedure
+setHandler(hdWin,w32HResize,routine_id("onResize_hdWin"))
+
+-------------------------------------------------------------------------------
+
+global procedure onResize_hdRecWin(integer self, integer event, sequence params)
+
+  sequence rect
+
+  rect = getRect(hdRecWin)
+  setRect(hdRecDescription,10,225,((rect[3]-rect[1])-26),60,w32True)
+  setRect(hdRecNotesList,10,295,((rect[3]-rect[1])-26),((rect[4]-rect[2])-400),w32True)
+  setRect(hdRecOKButton,25,((rect[4]-rect[2])-75),70,20,w32True)
+  setRect(hdRecCancelButton,100,((rect[4]-rect[2])-75),70,20,w32True)
+  setRect(hdRecAddNoteButton,175,((rect[4]-rect[2])-75),70,20,w32True)
+  setRect(hdRecSendEmailButton,250,((rect[4]-rect[2])-75),70,20,w32True)
+
+end procedure
+setHandler(hdRecWin,w32HResize,routine_id("onResize_hdRecWin"))
+
+-------------------------------------------------------------------------------
+
+global procedure onResize_hdRecNotesWin(integer self, integer event, sequence params)
+
+  sequence rect
+
+  rect = getRect(hdRecNotesWin)
+  setRect(hdRecNotesNote,10,40,((rect[3]-rect[1])-25),((rect[4]-rect[2])-150),w32True)
+  setRect(hdRecNotesOKButton,100,((rect[4]-rect[2])-75),70,20,w32True)
+  setRect(hdRecNotesCancelButton,200,((rect[4]-rect[2])-75),70,20,w32True)
+  setRect(hdRecNotesDeleteButton,300,((rect[4]-rect[2])-75),70,20,w32True)
+
+end procedure
+setHandler(hdRecNotesWin,w32HResize,routine_id("onResize_hdRecNotesWin"))
+
+-------------------------------------------------------------------------------
+
+global procedure onTimer(integer self, integer event, sequence params)
+
+  if length(params)>0 and params[1]=1 then
+    update_masterlist()
+    if isChecked(hdSearchNew) then
+      hdList_New()
+    elsif isChecked(hdSearchAll) then
+      hdList_All()
+    elsif isChecked(hdSearchAllOpen) then
+      hdList_Open()
+    end if
+  end if
+
+end procedure
+setHandler(hdWin,w32HTimer,routine_id("onTimer"))
+
+-------------------------------------------------------------------------------
+
+procedure clear_hdRecWin()
+
+  setText(hdRecRefnumEdit,"")
+  setIndex(hdRecIssueWithList,1)
+  setIndex(hdRecIssueTypeList,1)
+  setIndex(hdRecIssuePriList,1)
+  setText(hdRecEntryDateEdit,"")
+  setText(hdRecAssignedEdit,"")
+  setText(hdRecStatusEdit,"")
+  setText(hdRecUsernameEdit,"")
+  setText(hdRecDescription,"")
+  setText(hdRecShortDescripEdit,"")
+  setText(hdRecDeadlineEdit,"")
+  setText(hdRecSerialEdit,"")
+  eraseItems(hdRecNotesList)
+
+end procedure
+
+-------------------------------------------------------------------------------
+-- Menus
+-------------------------------------------------------------------------------
+
+global procedure onMenu_FileExit(integer self, integer event, sequence params)
+  closeWindow(hdWin)
+end procedure
+setHandler(hdFileExit,w32HClick,routine_id("onMenu_FileExit"))
+
+-------------------------------------------------------------------------------
+
+global procedure onMenu_SearchMy(integer self, integer event, sequence params)
+  hdList_My()
+end procedure
+setHandler(hdSearchMy,w32HClick,routine_id("onMenu_SearchMy"))
+
+-------------------------------------------------------------------------------
+
+global procedure onMenu_SearchNew(integer self, integer event, sequence params)
+  hdList_New()
+end procedure
+setHandler(hdSearchNew,w32HClick,routine_id("onMenu_SearchNew"))
+
+-------------------------------------------------------------------------------
+
+global procedure onMenu_SearchMyOpen(integer self, integer event, sequence params)
+  hdList_MyOpen()
+end procedure
+setHandler(hdSearchMyOpen,w32HClick,routine_id("onMenu_SearchMyOpen"))
+
+-------------------------------------------------------------------------------
+
+global procedure onMenu_SearchOpen(integer self, integer event, sequence params)
+  hdList_Open()
+end procedure
+setHandler(hdSearchAllOpen,w32HClick,routine_id("onMenu_SearchOpen"))
+
+-------------------------------------------------------------------------------
+
+global procedure onMenu_SearchAll(integer self, integer event, sequence params)
+  hdList_All()
+end procedure
+setHandler(hdSearchAll,w32HClick,routine_id("onMenu_SearchAll"))
+
+-------------------------------------------------------------------------------
+
+global procedure onMenu_SearchCustom(integer self, integer event, sequence params)
+  setCheck(hdSearchMy,w32False)
+  setCheck(hdSearchNew,w32False)
+  setCheck(hdSearchAll,w32False)
+  setCheck(hdSearchAllOpen,w32False)
+  setCheck(hdSearchCustom,w32True)
+  mode = MODE_SEARCH
+  custom_search = ""
+  openWindow(hdRecWin,Modal)
+  setEnable(hdRecRefnumEdit,w32True)
+  clear_hdRecWin()
+end procedure
+setHandler(hdSearchCustom,w32HClick,routine_id("onMenu_SearchCustom"))
+
+-------------------------------------------------------------------------------
+-- Buttons, etc.
+-------------------------------------------------------------------------------
+
+global procedure onClick_ViewIssue(integer self, integer event, sequence params)
+
+  object junk, idx
+  sequence row
+  atom SQLhandle
+  object SQLquery, SQLdata, SQLcursor
+
+  if self=hdRecNotesOKButton then
+    row = {getText(hdRecRefnumEdit)}
+  else
+    idx = getLVSelected(hdList)
+    if length(idx)=0 then
+      junk = message_box("Nothing selected.","Clicked",MB_OK)
+      return
+    else
+      row = getLVAllText(hdList,idx[1])
+    end if
+    openWindow(hdRecWin,Modal)
+  end if
+
+  SQLquery = "SELECT * FROM issues i LEFT JOIN notes n ON i.issue_refnum=n.issue_refnum WHERE i.issue_refnum="&
+             row[1]&" ORDER BY n.issue_refnum,n.seq;"
+
+  SQLhandle = prepareSQL(dbconn,SQLquery)
+  if SQLhandle < 0 then
+    odbcError(-SQLhandle)
+    freeStmt(-SQLhandle,SQL_RESET_PARAMS)
+    return
+  end if
+  SQLdata = executeSQL(SQLhandle)
+  if SQLdata < 0 then
+    odbcError(-SQLdata)
+    freeStmt(SQLhandle,SQL_RESET_PARAMS)
+    return
+  end if
+
+  SQLcursor = {}
+  SQLdata = odbc:getData(SQLhandle)
+  while sequence(SQLdata) and length(SQLdata) > 0 do
+    SQLcursor = SQLcursor & SQLdata
+    SQLdata = odbc:getData(SQLhandle)
+  end while
+  freeStmt(SQLhandle,SQL_RESET_PARAMS)
+
+  if length(SQLcursor)=0 then
+    junk = message_box("Huh?  Issue #"&row[1]&" is missing from the database.",
+      "Database Error",MB_ICONWARNING)
+    return
+  end if
+
+  if length(SQLcursor[1])<ISSUE_SERIAL then
+    junk = message_box("The record's too short.","Database error",MB_ICONWARNING)
+    return
+  end if
+
+  clear_hdRecWin()
+  setEnable(hdRecRefnumEdit,w32False)
+  setEnable(hdRecUsernameEdit,w32False)
+  setText(hdRecRefnumEdit,row[1])
+  if SQLcursor[1][ISSUE_WITH]!=99 then
+    setIndex(hdRecIssueWithList,SQLcursor[1][ISSUE_WITH]+1)
+  else
+    setIndex(hdRecIssueWithList,getCount(hdRecIssueWithList))
+  end if
+  if SQLcursor[1][ISSUE_TYPE]!=99 then
+    setIndex(hdRecIssueTypeList,SQLcursor[1][ISSUE_TYPE]+1)
+  else
+    setIndex(hdRecIssueTypeList,getCount(hdRecIssueTypeList))
+  end if
+  setIndex(hdRecIssuePriList,SQLcursor[1][ISSUE_PRIORITY]+1)
+  if length(SQLcursor[1][ISSUE_ENTRYDATE])>=3 then
+    setText(hdRecEntryDateEdit,sprintf("%02d/%02d/%04d",{SQLcursor[1][ISSUE_ENTRYDATE][2],
+        SQLcursor[1][ISSUE_ENTRYDATE][3],SQLcursor[1][ISSUE_ENTRYDATE][1]}))
+  end if
+  setText(hdRecAssignedEdit,SQLcursor[1][ISSUE_ASSIGNEDTO])
+  setText(hdRecStatusEdit,SQLcursor[1][ISSUE_STATUS])
+  setText(hdRecUsernameEdit,SQLcursor[1][ISSUE_UNAME])
+  setText(hdRecDescription,SQLcursor[1][ISSUE_DESCRIPTION])
+  setText(hdRecShortDescripEdit,SQLcursor[1][ISSUE_MISDESC])
+  if length(SQLcursor[1][ISSUE_DEADLINE])>=3 then
+    setText(hdRecDeadlineEdit,sprintf("%02d/%02d/%04d",{SQLcursor[1][ISSUE_DEADLINE][2],
+        SQLcursor[1][ISSUE_DEADLINE][3],SQLcursor[1][ISSUE_DEADLINE][1]}))
+  end if
+  setText(hdRecSerialEdit,SQLcursor[1][ISSUE_SERIAL])
+
+  for ctr = 1 to length(SQLcursor) do
+    if length(SQLcursor[ctr])>=NOTES_NOTE then
+      if length(SQLcursor[ctr][NOTES_TIME])=3 then
+        SQLcursor[ctr][NOTES_TIME] = sprintf("%02d/%02d/%04d",{SQLcursor[ctr][NOTES_TIME][2],
+           SQLcursor[ctr][NOTES_TIME][3],SQLcursor[ctr][NOTES_TIME][1]})
+      elsif length(SQLcursor[ctr][NOTES_TIME])>=6 then
+        SQLcursor[ctr][NOTES_TIME] = sprintf("%02d/%02d/%04d %02d:%02d:%02d",{SQLcursor[ctr][NOTES_TIME][2],
+           SQLcursor[ctr][NOTES_TIME][3],SQLcursor[ctr][NOTES_TIME][1],SQLcursor[ctr][NOTES_TIME][4],
+		   SQLcursor[ctr][NOTES_TIME][5],SQLcursor[ctr][NOTES_TIME][6]})
+      end if
+      if atom(SQLcursor[ctr][NOTES_SEQ]) then
+        SQLcursor[ctr][NOTES_SEQ] = sprintf("%d",SQLcursor[ctr][NOTES_SEQ])
+      end if
+      junk = addLVItem({hdRecNotesList,-1},-1,SQLcursor[ctr][NOTES_SEQ..NOTES_NOTE])
+    end if
+  end for
+  mode = MODE_EDIT
+  setEnable(hdRecSendEmailButton,w32True)
+
+end procedure
+setHandler(hdViewButton,w32HClick,routine_id("onClick_ViewIssue"))
+
+-------------------------------------------------------------------------------
+
+global procedure onDoubleClick_LVItem(integer self, integer event, sequence params)
+  if length(params)>=1 and params[1]=LeftDoubleClick then
+    onClick_ViewIssue(self,event,params)
+  end if
+end procedure
+setHandler(hdList,w32HMouse,routine_id("onDoubleClick_LVItem"))
+
+-------------------------------------------------------------------------------
+
+global procedure onClick_NewIssue(integer self, integer event, sequence params)
+
+  sequence now, uname
+  now = date()
+  uname = getenv("username")
+
+  openWindow(hdRecWin,Modal)
+  clear_hdRecWin()
+  setEnable(hdRecRefnumEdit,w32False)
+  setEnable(hdRecSendEmailButton,w32False)
+  setEnable(hdRecUsernameEdit,w32True)
+  setText(hdRecStatusEdit,"NEW")
+  setText(hdRecEntryDateEdit,sprintf("%02d/%02d/%04d",{now[2],now[3],now[1]+1900}))
+  setText(hdRecUsernameEdit,uname)
+  mode = MODE_NEW
+
+end procedure
+setHandler(hdNewButton,w32HClick,routine_id("onClick_NewIssue"))
+
+-------------------------------------------------------------------------------
+
+global procedure onClick_RecOKButton(integer self, integer event, sequence params)
+
+  sequence issuedata, issuecnames, searchop
+  object junk
+  atom SQLhandle, cpos
+  object SQLquery, SQLdata, SQLcursor
+
+  issuecnames = {"issue_refnum","issue_with","issue_type","issue_priority","first_entered_date","assigned_to",
+                 "status","uname","description","mis_short_descrip","deadline","serialnum"}
+
+  searchop = "="
+  issuedata = repeat("",ISSUE_SERIAL)
+  issuedata[ISSUE_ENTRYDATE] = getText(hdRecEntryDateEdit)
+  if find(length(issuedata[ISSUE_ENTRYDATE]),{0,8,10})=0 and mode != MODE_SEARCH then
+    junk = message_box("Please make sure all dates use the format MM/DD/YYYY.","Date error",MB_ICONWARNING)
+    return
+  elsif length(issuedata[ISSUE_ENTRYDATE])=10 then
+    issuedata[ISSUE_ENTRYDATE]=issuedata[ISSUE_ENTRYDATE][7..10]&'-'&issuedata[ISSUE_ENTRYDATE][1..2]&'-'&
+	issuedata[ISSUE_ENTRYDATE][4..5]
+  elsif length(issuedata[ISSUE_ENTRYDATE])=8 then
+    issuedata[ISSUE_ENTRYDATE]="20"&issuedata[ISSUE_ENTRYDATE][7..8]&'-'&
+	issuedata[ISSUE_ENTRYDATE][1..2]&'-'&issuedata[ISSUE_ENTRYDATE][4..5]
+  end if
+  issuedata[ISSUE_DEADLINE] = getText(hdRecDeadlineEdit)
+  if find(length(issuedata[ISSUE_DEADLINE]),{0,8,10})=0 and mode != MODE_SEARCH then
+    junk = message_box("Please make sure all dates use the format MM/DD/YYYY.","Date error",MB_ICONWARNING)
+    return
+  elsif length(issuedata[ISSUE_DEADLINE])=10 then
+    issuedata[ISSUE_DEADLINE]=issuedata[ISSUE_DEADLINE][7..10]&'-'&issuedata[ISSUE_DEADLINE][1..2]&'-'&issuedata[ISSUE_DEADLINE][4..5]
+  elsif length(issuedata[ISSUE_DEADLINE])=8 then
+    issuedata[ISSUE_DEADLINE]="20"&issuedata[ISSUE_DEADLINE][7..8]&'-'&issuedata[ISSUE_DEADLINE][1..2]&'-'&issuedata[ISSUE_DEADLINE][4..5]
+  end if
+  issuedata[ISSUE_REFNUM] = getText(hdRecRefnumEdit)
+  issuedata[ISSUE_WITH] = sprintf("%d",getIndex(hdRecIssueWithList)-1)
+  if getIndex(hdRecIssueWithList)=getCount(hdRecIssueWithList) then
+    issuedata[ISSUE_WITH] = "99"
+  end if
+  issuedata[ISSUE_TYPE] = sprintf("%d",getIndex(hdRecIssueTypeList)-1)
+  if getIndex(hdRecIssueTypeList)=getCount(hdRecIssueTypeList) then
+    issuedata[ISSUE_TYPE] = "99"
+  end if
+  issuedata[ISSUE_PRIORITY] = sprintf("%d",getIndex(hdRecIssuePriList)-1)
+  issuedata[ISSUE_ASSIGNEDTO] = getText(hdRecAssignedEdit)
+  issuedata[ISSUE_STATUS] = getText(hdRecStatusEdit)
+  issuedata[ISSUE_UNAME] = getText(hdRecUsernameEdit)
+  issuedata[ISSUE_DESCRIPTION] = getText(hdRecDescription)
+  issuedata[ISSUE_MISDESC] = getText(hdRecShortDescripEdit)
+  issuedata[ISSUE_SERIAL] = getText(hdRecSerialEdit)
+  while find('\'',issuedata[ISSUE_DESCRIPTION]) do
+    issuedata[ISSUE_DESCRIPTION][find('\'',issuedata[ISSUE_DESCRIPTION])]=' '
+  end while
+  while find('\'',issuedata[ISSUE_MISDESC]) do
+    issuedata[ISSUE_MISDESC][find('\'',issuedata[ISSUE_MISDESC])]=' '
+  end while
+
+  SQLquery = ""
+  if mode = MODE_NEW then
+    SQLquery = "INSERT INTO issues VALUES("
+    for ctr = ISSUE_REFNUM to ISSUE_SERIAL do
+      SQLquery = SQLquery & "\'" & issuedata[ctr] & "\'"
+      if ctr != ISSUE_SERIAL then
+        SQLquery = SQLquery & ","
+      end if
+    end for
+    SQLquery = SQLquery & ");"
+  elsif mode = MODE_EDIT then
+    SQLquery = "UPDATE issues SET assigned_to=\'"&issuedata[ISSUE_ASSIGNEDTO]&"\',status=\'"&
+		issuedata[ISSUE_STATUS]&"\',"&"description=\'"&issuedata[ISSUE_DESCRIPTION]&
+		"\',mis_short_descrip=\'"&issuedata[ISSUE_MISDESC]&"\',"&"deadline=\'"&
+		issuedata[ISSUE_DEADLINE]&"\', serialnum=\'"&issuedata[ISSUE_SERIAL]&"\' "&
+		"WHERE issue_refnum="&issuedata[ISSUE_REFNUM]&";"
+  elsif mode = MODE_SEARCH then
+    SQLquery = "SELECT issue_refnum,first_entered_date,deadline,assigned_to,status,mis_short_descrip "&
+               "FROM issues WHERE "
+    for ctr = ISSUE_REFNUM to ISSUE_SERIAL do
+	  searchop = "="
+	  issuedata[ctr] = trim(issuedata[ctr])
+      if length(issuedata[ctr])>0 and compare(issuedata[ctr],"0")!=0 then
+		cpos = find('%',issuedata[ctr])
+		if cpos = 0 then cpos = find('_',issuedata[ctr]) end if
+		if cpos then 
+			searchop = "LIKE"
+		else
+			if length(issuedata[ctr])>1 and 
+				 (compare(issuedata[ctr][1..2],"<=")=0 or
+				  compare(issuedata[ctr][1..2],">=")=0) then
+				searchop = issuedata[ctr][1..2]
+				issuedata[ctr] = trim(issuedata[ctr][3..length(issuedata[ctr])])
+			elsif length(issuedata[ctr])>1 and
+				 (compare(issuedata[ctr][1],'<')=0 or
+				  compare(issuedata[ctr][1],'>')=0) then
+				searchop = {issuedata[ctr][1]}
+				issuedata[ctr] = trim(issuedata[ctr][2..length(issuedata[ctr])])
+			end if
+		end if
+        SQLquery = SQLquery & issuecnames[ctr] & " "& searchop & " \'" & issuedata[ctr] & "\' AND "
+      end if
+    end for
+    if compare(SQLquery[length(SQLquery)-4..length(SQLquery)]," AND ")=0 then
+      SQLquery = SQLquery[1..length(SQLquery)-4]
+    elsif compare(SQLquery[length(SQLquery)-6..length(SQLquery)]," WHERE ")=0 then
+      SQLquery = SQLquery[1..length(SQLquery)-6]
+    end if
+    SQLquery = SQLquery & "ORDER BY issue_refnum;"
+    custom_search = SQLquery
+  end if
+
+  SQLhandle = prepareSQL(dbconn,SQLquery)
+  if SQLhandle < 0 then
+    odbcError(-SQLhandle)
+    freeStmt(-SQLhandle,SQL_RESET_PARAMS)
+    return
+  end if
+  SQLdata = executeSQL(SQLhandle)
+  if SQLdata < 0 then
+    odbcError(-SQLdata)
+    freeStmt(SQLhandle,SQL_RESET_PARAMS)
+    return
+  end if
+
+  if self != hdRecOKButton then
+    if mode = MODE_NEW then
+      SQLquery = "SELECT issue_refnum FROM issues WHERE "&
+               "assigned_to=\'"&issuedata[ISSUE_ASSIGNEDTO]&"\' AND status=\'"&
+			   issuedata[ISSUE_STATUS]&"\' AND "&
+               "description=\'"&issuedata[ISSUE_DESCRIPTION]&"\' AND mis_short_descrip=\'"&
+			   issuedata[ISSUE_MISDESC]&"\' AND "&
+               "deadline=\'"&issuedata[ISSUE_DEADLINE]&"\';"
+      SQLhandle = prepareSQL(dbconn,SQLquery)
+      if SQLhandle < 0 then
+        odbcError(-SQLhandle)
+        freeStmt(-SQLhandle,SQL_RESET_PARAMS)
+        return
+      end if
+      SQLdata = executeSQL(SQLhandle)
+      if SQLdata < 0 then
+        odbcError(-SQLdata)
+        freeStmt(SQLhandle,SQL_RESET_PARAMS)
+        return
+      end if
+      SQLcursor = {}
+      SQLdata = odbc:getData(SQLhandle)
+      while sequence(SQLdata) and length(SQLdata) > 0 do
+        SQLcursor = SQLcursor & SQLdata
+        SQLdata = odbc:getData(SQLhandle)
+      end while
+      freeStmt(SQLhandle,SQL_RESET_PARAMS)
+      if length(SQLcursor)!=1 then
+        junk = message_box("Could not get issue_refnum.","Database error",MB_ICONWARNING)
+      else
+        if isChecked(hdSearchAll) then
+          hdList_All()
+        elsif isChecked(hdSearchMy) then
+          hdList_My()
+        elsif isChecked(hdSearchNew) then
+          hdList_New()
+        elsif isChecked(hdSearchAllOpen) then
+          hdList_Open()
+        elsif isChecked(hdSearchCustom) then
+          hdList_Custom()
+        end if
+        setText(hdRecRefnumEdit,SQLcursor[1][ISSUE_REFNUM])
+        setEnable(hdRecSendEmailButton,w32True)
+        mode = MODE_EDIT
+        return
+      end if
+    else
+      return
+    end if
+  end if
+
+  if mode!=MODE_SEARCH then
+    junk = message_box("Database updated.","SQL OK",MB_OK)
+  end if
+
+  if isChecked(hdSearchAll) then
+    hdList_All()
+  elsif isChecked(hdSearchMy) then
+    hdList_My()
+  elsif isChecked(hdSearchNew) then
+    hdList_New()
+  elsif isChecked(hdSearchAllOpen) then
+    hdList_Open()
+  elsif isChecked(hdSearchCustom) then
+    hdList_Custom()
+  end if
+
+  closeWindow(hdRecWin)
+  setFocus(hdWin)
+
+end procedure
+setHandler(hdRecOKButton,w32HClick,routine_id("onClick_RecOKButton"))
+
+-------------------------------------------------------------------------------
+
+global procedure onClick_RecCancelButton(integer self, integer event, sequence params)
+  closeWindow(hdRecWin)
+  setFocus(hdWin)
+end procedure
+setHandler(hdRecCancelButton,w32HClick,routine_id("onClick_RecCancelButton"))
+
+-------------------------------------------------------------------------------
+
+global procedure onClick_RecAddNotesButton(integer self, integer event, sequence params)
+
+  sequence now, uname, status, refnum
+
+  status = getText(hdRecStatusEdit)
+  if mode = MODE_EDIT and compare(upper(status),"NEW")=0 then
+    status = "UPDATED"
+    setText(hdRecStatusEdit,"UPDATED")
+  end if
+  onClick_RecOKButton(self,event,params)
+  refnum = getText(hdRecRefnumEdit)
+  now = date()
+  uname = getenv("username")
+
+  openWindow(hdRecNotesWin,Modal)
+
+  setText(hdRecNotesTimestamp,sprintf("%02d/%02d/%04d  %02d:%02d:%02d",
+    {now[2],now[3],now[1]+1900,now[4],now[5],now[6]}))
+  setText(hdRecNotesUsername,uname)
+  setText(hdRecNotesStatus,status)
+  setText(hdRecNotesRefnum,"Ref #: "&refnum)
+  setText(hdRecNotesSeqnum,"")
+  setText(hdRecNotesNote,"")
+  notemode = NOTE_NEW
+  setFocus(hdRecNotesNote)
+
+end procedure
+setHandler(hdRecAddNoteButton,w32HClick,routine_id("onClick_RecAddNotesButton"))
+
+-------------------------------------------------------------------------------
+
+global procedure onClick_RecSendEmailButton(integer self, integer event, sequence params)
+
+  sequence refnum,uname,assigned, misdescrip, status
+
+  refnum = getText(hdRecRefnumEdit)
+  uname = getText(hdRecUsernameEdit)
+  assigned = getText(hdRecAssignedEdit)
+  misdescrip = getText(hdRecShortDescripEdit)
+  status = getText(hdRecStatusEdit)
+
+  setText(hdRecEmailFromEdit,assigned&"@notations.com")
+  if find('@',uname)=0 then
+    setText(hdRecEmailToEdit,uname&"@notations.com")
+  else
+    setText(hdRecEmailToEdit,uname)
+  end if
+  setText(hdRecEmailCCEdit,"")
+  setText(hdRecEmailSubjEdit,"Re: [HelpDesk] Issue #"&trim(refnum)&" - "&misdescrip)
+  setText(hdRecEmailMsgEdit,"Status: "&status&"\n")
+
+  openWindow(hdRecEmailWin,Modal)
+  setFocus(hdRecEmailMsgEdit)
+
+end procedure
+setHandler(hdRecSendEmailButton,w32HClick,routine_id("onClick_RecSendEmailButton"))
+
+-------------------------------------------------------------------------------
+
+global procedure onClick_RecNotesOKButton(integer self, integer event, sequence params)
+
+  sequence refnum,seqnum,note,uname,status
+  atom SQLhandle
+  object SQLquery, SQLdata, SQLcursor
+
+  refnum = getText(hdRecNotesRefnum)
+  if length(refnum)>7 then
+    refnum=refnum[8..length(refnum)]
+  end if
+  seqnum = getText(hdRecNotesSeqnum)
+  uname = getText(hdRecNotesUsername)
+  status = getText(hdRecNotesStatus)
+  note = getText(hdRecNotesNote)
+  while find('\'',note) do
+    note[find('\'',note)]=' '
+  end while
+  if notemode = NOTE_NEW then
+    SQLquery = "SELECT MAX(seq) FROM notes WHERE issue_refnum=\'"&refnum&"\';"
+    SQLhandle = prepareSQL(dbconn,SQLquery)
+    if SQLhandle < 0 then
+      odbcError(-SQLhandle)
+      freeStmt(-SQLhandle,SQL_RESET_PARAMS)
+      return
+    end if
+    SQLdata = executeSQL(SQLhandle)
+    if SQLdata < 0 then
+      odbcError(-SQLdata)
+      freeStmt(SQLhandle,SQL_RESET_PARAMS)
+      return
+    end if
+    SQLcursor = {}
+    SQLdata = odbc:getData(SQLhandle)
+    while sequence(SQLdata) and length(SQLdata) > 0 do
+      SQLcursor = SQLcursor & SQLdata
+      SQLdata = odbc:getData(SQLhandle)
+    end while
+    freeStmt(SQLhandle,SQL_RESET_PARAMS)
+    if length(SQLcursor)=0 or length(SQLcursor[1])=0 then seqnum="1"
+    elsif sequence(SQLcursor[1][1]) then
+      seqnum=value(SQLcursor[1][1])
+      if seqnum[1] = GET_SUCCESS then
+        seqnum = sprintf("%d",seqnum[2]+1)
+      else
+        seqnum = "1"
+      end if
+    else
+      seqnum = sprintf("%d",SQLcursor[1][1]+1)
+    end if
+    SQLquery = "INSERT INTO notes (issue_refnum,seq,note_time,note_user,new_status,notes) VALUES "&
+               "(\'"&refnum&"\',\'"&seqnum&"\',CURRENT_TIMESTAMP(),\'"&uname&"\',\'"&status&"\',\'"&
+               note&"\');"
+  elsif notemode = NOTE_EDIT then
+    SQLquery = "UPDATE notes SET notes=\'"&note&"\' WHERE issue_refnum=\'"&refnum&"\' "&
+               "AND seq=\'"&seqnum&"\';"
+  end if
+  SQLhandle = prepareSQL(dbconn,SQLquery)
+  if SQLhandle < 0 then
+    odbcError(-SQLhandle)
+    freeStmt(-SQLhandle,SQL_RESET_PARAMS)
+    return
+  end if
+  SQLdata = executeSQL(SQLhandle)
+  if SQLdata < 0 then
+    odbcError(-SQLdata)
+    freeStmt(SQLhandle,SQL_RESET_PARAMS)
+    return
+  end if
+  closeWindow(hdRecNotesWin)
+  onClick_ViewIssue(self,event,params)
+
+end procedure
+setHandler(hdRecNotesOKButton,w32HClick,routine_id("onClick_RecNotesOKButton"))
+
+-------------------------------------------------------------------------------
+
+global procedure onClick_RecNotesCancelButton(integer self, integer event, sequence params)
+  closeWindow(hdRecNotesWin)
+  setFocus(hdRecWin)
+end procedure
+setHandler(hdRecNotesCancelButton,w32HClick,routine_id("onClick_RecNotesCancelButton"))
+
+-------------------------------------------------------------------------------
+
+global procedure onClick_RecNotesDeleteButton(integer self, integer event, sequence params)
+
+  atom SQLhandle
+  object SQLquery, SQLdata
+  object junk
+  sequence refnum, seqnum
+
+  junk = message_box("Are you sure?","Confirm delete",MB_YESNO)
+  if junk = IDNO then
+    return
+  end if
+  refnum = getText(hdRecNotesRefnum)
+  seqnum = getText(hdRecNotesSeqnum)
+
+  SQLquery = "DELETE FROM notes WHERE issue_refnum=\'"&refnum&"\' AND seq=\'"&seqnum&"\';"
+  SQLhandle = prepareSQL(dbconn,SQLquery)
+  if SQLhandle < 0 then
+    odbcError(-SQLhandle)
+    freeStmt(-SQLhandle,SQL_RESET_PARAMS)
+    return
+  end if
+  SQLdata = executeSQL(SQLhandle)
+  if SQLdata < 0 then
+    odbcError(-SQLdata)
+    freeStmt(SQLhandle,SQL_RESET_PARAMS)
+    return
+  end if
+  closeWindow(hdRecNotesWin)
+  onClick_ViewIssue(self,event,params)
+
+end procedure
+setHandler(hdRecNotesDeleteButton,w32HClick,routine_id("onClick_RecNotesDeleteButton"))
+
+-------------------------------------------------------------------------------
+
+global procedure onClick_RecEmailSendButton(integer self, integer event, sequence params)
+
+  object fn,junk
+  sequence now,DOW,MONTH
+  sequence uname, status, refnum, note, seqnum
+  atom SQLhandle
+  object SQLquery, SQLdata, SQLcursor
+
+  status = getText(hdRecStatusEdit)
+  if mode = MODE_EDIT and compare(upper(status),"NEW")=0 then
+    status = "UPDATED"
+    setText(hdRecStatusEdit,"UPDATED")
+  end if
+  onClick_RecOKButton(self,event,params)
+  refnum = getText(hdRecRefnumEdit)
+  uname = getenv("username")
+
+  DOW = {"Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"}
+  MONTH = {"January","February","March","April","May","June","July","August","September","October","November","December"}
+  now = date()
+
+  fn = open("//BC-APP1/Pickup$/hd"&sprintf("%04d%02d%02d%02d%02d%02d",
+    {now[1]+1900,now[2],now[3],now[4],now[5],now[6]})&".eml","w")
+  if fn < 2 then
+    junk = message_box("Your message could not be sent.  Please make sure you are "&
+           "able to browse folders on BC-APP1 (V: drive).","File write error",
+           MB_ICONWARNING)
+    return
+  end if
+
+  puts(fn,"From: "&trim(getText(hdRecEmailFromEdit))&"\n")
+  puts(fn,"To: "&trim(getText(hdRecEmailToEdit))&"\n")
+  puts(fn,"Cc: "&trim(getText(hdRecEmailCCEdit))&"\n")
+  puts(fn,"Subject: "&trim(getText(hdRecEmailSubjEdit))&"\n")
+  puts(fn,"Date: "&DOW[now[7]]&", "&sprintf("%02d",now[3])&" "&MONTH[now[2]]&" "&sprintf("%04d",now[1]+1900)&
+              " "&sprintf("%02d:%02d:%02d",now[4..6])&" -0400\n")
+  puts(fn,"Content-Type: text/plain;\n")
+  puts(fn,"        charset=\"iso-8859-1\"\n")
+  puts(fn,"Content-Transfer-Encoding: 7bit\n\n")
+  puts(fn,trim(getText(hdRecEmailMsgEdit))&"\n")
+
+  close(fn)
+  note = "Email sent:\n\n" & trim(getText(hdRecEmailMsgEdit))
+  while find('\'',note) do
+    note[find('\'',note)]=' '
+  end while
+-- Add email to note
+    SQLquery = "SELECT MAX(seq) FROM notes WHERE issue_refnum=\'"&refnum&"\';"
+    SQLhandle = prepareSQL(dbconn,SQLquery)
+    if SQLhandle < 0 then
+      odbcError(-SQLhandle)
+      freeStmt(-SQLhandle,SQL_RESET_PARAMS)
+      return
+    end if
+    SQLdata = executeSQL(SQLhandle)
+    if SQLdata < 0 then
+      odbcError(-SQLdata)
+      freeStmt(SQLhandle,SQL_RESET_PARAMS)
+      return
+    end if
+    SQLcursor = {}
+    SQLdata = odbc:getData(SQLhandle)
+    while sequence(SQLdata) and length(SQLdata) > 0 do
+      SQLcursor = SQLcursor & SQLdata
+      SQLdata = odbc:getData(SQLhandle)
+    end while
+    freeStmt(SQLhandle,SQL_RESET_PARAMS)
+    if length(SQLcursor)=0 or length(SQLcursor[1])=0 then seqnum="1"
+    elsif sequence(SQLcursor[1][1]) then
+      seqnum=value(SQLcursor[1][1])
+      if seqnum[1] = GET_SUCCESS then
+        seqnum = sprintf("%d",seqnum[2]+1)
+      else
+        seqnum = "1"
+      end if
+    else
+      seqnum = sprintf("%d",SQLcursor[1][1]+1)
+    end if
+    SQLquery = "INSERT INTO notes (issue_refnum,seq,note_time,note_user,new_status,notes) VALUES "&
+               "(\'"&refnum&"\',\'"&seqnum&"\',CURRENT_TIMESTAMP(),\'"&uname&"\',\'"&status&"\',\'"&
+               note&"\');"
+
+  SQLhandle = prepareSQL(dbconn,SQLquery)
+  if SQLhandle < 0 then
+    odbcError(-SQLhandle)
+    freeStmt(-SQLhandle,SQL_RESET_PARAMS)
+    return
+  end if
+  SQLdata = executeSQL(SQLhandle)
+  if SQLdata < 0 then
+    odbcError(-SQLdata)
+    freeStmt(SQLhandle,SQL_RESET_PARAMS)
+    return
+  end if
+
+  closeWindow(hdRecEmailWin)
+  onClick_ViewIssue(self,event,params)
+  setFocus(hdRecWin)
+
+end procedure
+setHandler(hdRecEmailSendButton,w32HClick,routine_id("onClick_RecEmailSendButton"))
+
+-------------------------------------------------------------------------------
+
+global procedure onClick_RecEmailCancelButton(integer self, integer event, sequence params)
+  closeWindow(hdRecEmailWin)
+  setFocus(hdRecWin)
+end procedure
+setHandler(hdRecEmailCancelButton,w32HClick,routine_id("onClick_RecEmailCancelButton"))
+
+-------------------------------------------------------------------------------
+
+global procedure onDoubleClick_RecNote(integer self, integer event, sequence params)
+
+  object idx, junk
+  sequence row, refnum
+
+  if length(params)>=1 and params[1]=LeftDoubleClick then
+    idx = getLVSelected(hdRecNotesList)
+    if length(idx)=0 then
+      junk = message_box("Nothing selected.","Clicked",MB_OK)
+      return
+    else
+      row = getLVAllText(hdRecNotesList,idx[1])
+    end if
+    refnum = getText(hdRecRefnumEdit)
+    openWindow(hdRecNotesWin,Modal)
+  else
+    return
+  end if
+  setText(hdRecNotesSeqnum,row[1])
+  setText(hdRecNotesTimestamp,row[2])
+  setText(hdRecNotesUsername,row[3])
+  setText(hdRecNotesStatus,row[4])
+  setText(hdRecNotesRefnum,refnum)
+  setText(hdRecNotesNote,row[5])
+  notemode = NOTE_EDIT
+
+end procedure
+setHandler(hdRecNotesList,w32HMouse,routine_id("onDoubleClick_RecNote"))
+
+-------------------------------------------------------------------------------
+
+if initODBC() then end if
+WinMain(hdWin,Minimize)
+cleanUpODBC()
